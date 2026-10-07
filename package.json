@@ -1,0 +1,12 @@
+{
+  "name": "buckshot-roulette",
+  "version": "1.0.0",
+  "description": "3D First-Person Shooter with online 1v1 and offline bot mode",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
