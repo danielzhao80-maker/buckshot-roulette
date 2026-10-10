@@ -1059,6 +1059,7 @@ const GameScene = {
   renderer: null,
   shotgunOnTable: null,
   heldGun: null,
+  _tableGunMine: false, // table shotgun shows the arcade gun skin only on the player's turn
   muzzleFlash: null,
   opponentMesh: null,
   raycaster: null,
@@ -1724,6 +1725,9 @@ const GameScene = {
     const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3, metalness: 0.7 });
     const wood = new THREE.MeshStandardMaterial({ map: this._textures.gunWood, roughness: 0.5, metalness: 0.0 });
     const darkWood = new THREE.MeshStandardMaterial({ color: 0x3a1a08, roughness: 0.7 });
+    // Part tags for the arcade gun skin (_skinShotgun)
+    metal.userData.gunPart = 'metal'; darkMetal.userData.gunPart = 'darkMetal';
+    wood.userData.gunPart = 'wood'; darkWood.userData.gunPart = 'darkWood';
 
     // Double barrels
     [-0.013, 0.013].forEach(x => {
@@ -1743,6 +1747,7 @@ const GameScene = {
     // Front sight bead
     const bead = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6),
       new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
+    bead.material.userData.gunPart = 'sight';
     bead.position.set(0, 0.038, -0.66); group.add(bead);
 
     // Barrel bands
@@ -1822,8 +1827,10 @@ const GameScene = {
   },
 
   /**
-   * Arcade gun skin: glow accent on the held gun's metal, flash + shot trail colors.
-   * Re-runnable (live shop changes): original colors are cached in material.userData
+   * Arcade gun skin: recolours the held shotgun itself (barrels/receiver = bullet,
+   * stock/grip/pump = trail, glow emissive on metal + sight), plus flash + shot trail.
+   * The table shotgun is skinned only while it is the player's turn (_setTableGunOwner).
+   * Re-runnable (live shop changes): originals are cached in material.userData.gunOrig
    * and restored when the gun slot is empty; the old trail line is removed first.
    */
   _applyGunSkin() {
@@ -1835,22 +1842,8 @@ const GameScene = {
     this._skinTrail = null;
     if (!window.ArcadeSkins || !this.heldGun) return;
     const on = ArcadeSkins.has('gun');
-    const seen = new Set(); // materials are shared between meshes
-    let n = 0;
-    this.heldGun.traverse(obj => {
-      const m = obj.material;
-      if (!m || obj === this.muzzleFlash || seen.has(m)) return;
-      seen.add(m);
-      if (m.isMeshStandardMaterial && m.metalness >= 0.7) {
-        const o = m.userData.arcadeOrig || (m.userData.arcadeOrig =
-          { emissive: m.emissive.getHex(), intensity: m.emissiveIntensity });
-        if (on && ArcadeSkins.paint(m.emissive, 'gun', 'glow', 'bs-gun-' + (n++))) m.emissiveIntensity = 0.35;
-        else { m.emissive.setHex(o.emissive); m.emissiveIntensity = o.intensity; }
-      } else if (m.isMeshBasicMaterial) {
-        const o = m.userData.arcadeOrig || (m.userData.arcadeOrig = { color: m.color.getHex() });
-        if (!(on && ArcadeSkins.paint(m.color, 'gun', 'glow', 'bs-gun-bead-' + (n++)))) m.color.setHex(o.color); // front sight bead
-      }
-    });
+    this._skinShotgun(this.heldGun, on);
+    this._skinShotgun(this.shotgunOnTable, on && this._tableGunMine);
     const fm = this.muzzleFlash.material;
     const fo = fm.userData.arcadeOrig || (fm.userData.arcadeOrig = { color: fm.color.getHex() });
     if (!(on && ArcadeSkins.paint(fm.color, 'gun', 'bullet', 'bs-gun-flash'))) fm.color.setHex(fo.color);
@@ -1864,6 +1857,82 @@ const GameScene = {
       this._skinTrail.visible = false;
       this.heldGun.add(this._skinTrail);
     }
+  },
+
+  // Gun part -> [colour field, colour scale, emissive field, emissive intensity].
+  // Wood keeps its grain texture; scale > 1 lifts the dark map so the tint reads.
+  // Parts not listed (butt pad, muzzle flash) keep their own colours.
+  _GUN_SKIN_PARTS: {
+    metal:     ['bullet', 1,    'glow',  0.3],  // barrels, receiver, rib, trigger
+    darkMetal: ['bullet', 0.35, null,    0],    // bores, bands, loading port
+    wood:      ['trail',  2.0,  'trail', 0.12], // stock, grip, pump
+    darkWood:  ['trail',  0.45, null,    0],    // forend grooves, checkering
+    sight:     ['glow',   1,    null,    0]     // front bead (MeshBasic)
+  },
+  _GUN_SKIN_KEYS: ['bullet', 'glow', 'trail'],
+
+  /** Skin field to use for `key`, falling back to any field the skin defines. */
+  _gunSkinField(key) {
+    if (ArcadeSkins.has('gun', key)) return key;
+    const keys = this._GUN_SKIN_KEYS;
+    for (let i = 0; i < keys.length; i++) if (ArcadeSkins.has('gun', keys[i])) return keys[i];
+    return null;
+  },
+
+  /** Restore a shotgun group's original materials, then paint the gun skin if `on`. */
+  _skinShotgun(group, on) {
+    if (!group || !window.ArcadeSkins) return;
+    let mats = group.userData.skinMats;
+    if (!mats) { // unique tagged materials, collected once per gun
+      mats = group.userData.skinMats = [];
+      group.traverse(obj => {
+        const m = obj.material;
+        if (m && m.userData.gunPart && mats.indexOf(m) < 0) mats.push(m);
+      });
+    }
+    for (const m of mats) {
+      const o = m.userData.gunOrig || (m.userData.gunOrig = {
+        color: m.color.getHex(), map: m.map || null,
+        emissive: m.emissive ? m.emissive.getHex() : 0, ei: m.emissiveIntensity,
+        metalness: m.metalness, roughness: m.roughness });
+      m.color.setHex(o.color);
+      if ((m.map || null) !== o.map) { m.map = o.map; m.needsUpdate = true; }
+      if (m.emissive) { m.emissive.setHex(o.emissive); m.emissiveIntensity = o.ei; }
+      if (m.isMeshStandardMaterial) { m.metalness = o.metalness; m.roughness = o.roughness; }
+    }
+    group.userData.skinned = !!on;
+    if (on) this._paintShotgun(group);
+  },
+
+  /** Paint the current skin colours onto a skinned gun. Allocation-free (runs per frame for rainbow). */
+  _paintShotgun(group) {
+    const mats = group.userData.skinMats;
+    for (let i = 0; i < mats.length; i++) {
+      const m = mats[i], p = this._GUN_SKIN_PARTS[m.userData.gunPart];
+      const key = p && this._gunSkinField(p[0]);
+      if (!key) continue;
+      m.color.setHex(ArcadeSkins.hex('gun', key, 0xffffff));
+      if (p[1] !== 1) m.color.multiplyScalar(p[1]);
+      if (!m.isMeshStandardMaterial) continue;
+      // Less metalness so the colour shows without an env map; still shaded
+      if (m.userData.gunOrig.metalness > 0.5) { m.metalness = 0.45; m.roughness = 0.3; }
+      const ek = p[2] && this._gunSkinField(p[2]);
+      if (ek) { m.emissive.setHex(ArcadeSkins.hex('gun', ek, 0)); m.emissiveIntensity = p[3]; }
+    }
+  },
+
+  /** Rainbow gun skins: re-paint the visible skinned guns (called from the render loop). */
+  _tickGunSkin() {
+    if (!window.ArcadeSkins || !ArcadeSkins.isRainbow || !ArcadeSkins.isRainbow('gun')) return;
+    const h = this.heldGun, t = this.shotgunOnTable;
+    if (h && h.visible && h.userData.skinned) this._paintShotgun(h);
+    if (t && t.visible && t.userData.skinned) this._paintShotgun(t);
+  },
+
+  /** The table shotgun wears the player's gun skin only while it is the player's turn. */
+  _setTableGunOwner(mine) {
+    this._tableGunMine = mine;
+    if (window.ArcadeSkins) this._skinShotgun(this.shotgunOnTable, mine && ArcadeSkins.has('gun'));
   },
 
   /** Live re-apply of the arcade background skin; empty slot -> the room's default colors. */
@@ -3063,6 +3132,7 @@ const GameScene = {
   /** Allow the player to click on the shotgun to pick it up. */
   enableGunPickup() {
     this.canInteract = true; this.gunPickedUp = false;
+    this._setTableGunOwner(true); // your turn: the gun on the table wears your skin
     this.shotgunOnTable.visible = true; this.heldGun.visible = false;
     this.aimYaw = 0; this.aimPitch = 0;
     this.camera.rotation.set(0, 0, 0);
@@ -3072,6 +3142,7 @@ const GameScene = {
 
   disableInteraction() {
     this.canInteract = false; this.gunPickedUp = false;
+    this._setTableGunOwner(false); // dealer/opponent's gun: original look
     this.shotgunOnTable.visible = true; this.heldGun.visible = false;
     this.camera.rotation.set(0, 0, 0);
     this.camera.position.set(0, 1.3, 2.2); this.camera.lookAt(0, 0.85, 0);
@@ -3111,6 +3182,7 @@ const GameScene = {
   },
 
   async opponentShootAnimation(target) {
+    if (this._tableGunMine) this._setTableGunOwner(false);
     this.shotgunOnTable.visible = true;
     const sp = this.shotgunOnTable.position.clone();
     const sr = this.shotgunOnTable.rotation.clone();
@@ -3280,6 +3352,7 @@ const GameScene = {
 
     // Arcade skins (cosmetic): rainbow cycling + item-use burst
     if (window.ArcadeSkins) ArcadeSkins.tick();
+    this._tickGunSkin();
     this._updateAbilityBurst(time);
 
     this.renderer.render(this.scene, this.camera);
@@ -5092,18 +5165,22 @@ const FPSGame = {
   if (window.ArcadeShop && window.ArcadeShop.registerCurrency) {
     window.ArcadeShop.registerCurrency({
       name: 'Bonus Items', emoji: '🎁', rate: 3,
+      // Stockpile cap: 99 waiting bonus items.
+      room: () => 99 - (parseInt(localStorage.getItem(BONUS_ITEMS_KEY), 10) || 0),
       note: 'Up to 2 are added to your items each offline round (the table holds 4).',
       grant(amount) {
         const have = parseInt(localStorage.getItem(BONUS_ITEMS_KEY), 10) || 0;
-        localStorage.setItem(BONUS_ITEMS_KEY, String(have + amount));
+        localStorage.setItem(BONUS_ITEMS_KEY, String(Math.min(99, have + amount)));
       },
     });
     window.ArcadeShop.registerCurrency({
       name: 'Extra Lives', emoji: '❤️', rate: 1,
+      // Stockpile cap: 20 waiting extra lives.
+      room: () => 20 - (parseInt(localStorage.getItem(EXTRA_LIVES_KEY), 10) || 0),
       note: 'Each one gives you a gold bonus charge at the start of one offline round.',
       grant(amount) {
         const have = parseInt(localStorage.getItem(EXTRA_LIVES_KEY), 10) || 0;
-        localStorage.setItem(EXTRA_LIVES_KEY, String(have + amount));
+        localStorage.setItem(EXTRA_LIVES_KEY, String(Math.min(20, have + amount)));
       },
     });
   }

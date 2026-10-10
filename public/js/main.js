@@ -137,18 +137,22 @@
   if (window.ArcadeShop && window.ArcadeShop.registerCurrency) {
     window.ArcadeShop.registerCurrency({
       name: 'Bonus Items', emoji: '🎁', rate: 3,
+      // Stockpile cap: 99 waiting bonus items.
+      room: () => 99 - (parseInt(localStorage.getItem(BONUS_ITEMS_KEY), 10) || 0),
       note: 'Up to 2 are added to your items each offline round (the table holds 4).',
       grant(amount) {
         const have = parseInt(localStorage.getItem(BONUS_ITEMS_KEY), 10) || 0;
-        localStorage.setItem(BONUS_ITEMS_KEY, String(have + amount));
+        localStorage.setItem(BONUS_ITEMS_KEY, String(Math.min(99, have + amount)));
       },
     });
     window.ArcadeShop.registerCurrency({
       name: 'Extra Lives', emoji: '❤️', rate: 1,
+      // Stockpile cap: 20 waiting extra lives.
+      room: () => 20 - (parseInt(localStorage.getItem(EXTRA_LIVES_KEY), 10) || 0),
       note: 'Each one gives you a gold bonus charge at the start of one offline round.',
       grant(amount) {
         const have = parseInt(localStorage.getItem(EXTRA_LIVES_KEY), 10) || 0;
-        localStorage.setItem(EXTRA_LIVES_KEY, String(have + amount));
+        localStorage.setItem(EXTRA_LIVES_KEY, String(Math.min(20, have + amount)));
       },
     });
   }
