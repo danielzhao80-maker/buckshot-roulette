@@ -4136,6 +4136,7 @@ const Game = {
   _endGame(playerWon) {
     this.gameOver = true;
     this.turnActive = false;
+    const streak = this._recordStreak(playerWon);
     SaveSystem.stop();
     SaveSystem.clear();
 
@@ -4146,7 +4147,7 @@ const Game = {
 
     if (playerWon) {
       GameAudio.playWin();
-      this.els.gameOverText.textContent = 'YOU WIN';
+      this.els.gameOverText.textContent = streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN';
       this.els.gameOverText.style.color = '#44ff44';
       GameScene.opponentDeath();
     } else {
@@ -4325,7 +4326,31 @@ const Game = {
     }
   },
 
+  /**
+   * Daniel's Arcade: Buckshot wins in a row, kept in the arcade save (offline and online).
+   * A loss — or quitting a match that's still going — resets it. 10 in a row plus the Shadow
+   * gun skin earns the 🏆 Champion title (granted by the shared shop). Returns the new streak.
+   */
+  _recordStreak(won) {
+    if (!window.ArcadeShop || !ArcadeShop.update) return 0;
+    let streak = 0, reached = false;
+    try {
+      const save = ArcadeShop.update((sv) => {
+        sv.buckshot = sv.buckshot || { streak: 0, best: 0 };
+        sv.buckshot.streak = won ? (sv.buckshot.streak || 0) + 1 : 0;
+        reached = won && sv.buckshot.streak === ArcadeShop.CHAMPION_STREAK;
+        sv.buckshot.best = Math.max(sv.buckshot.best || 0, sv.buckshot.streak);
+        streak = sv.buckshot.streak;
+      });
+      if (!ArcadeShop.announceChampion() && reached && !save.owned.includes('champion')) {
+        ArcadeShop.toast('🏆 ' + ArcadeShop.CHAMPION_STREAK + ' WINS IN A ROW! Put the Shadow gun skin on to become Champion.');
+      }
+    } catch (e) { console.warn('streak', e); }
+    return streak;
+  },
+
   quit() {
+    if (!this.gameOver && this.mode) this._recordStreak(false); // walking out of a match counts as a loss
     this.paused = false;
     this.gameOver = true;
     SaveSystem.stop();
