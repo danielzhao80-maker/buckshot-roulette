@@ -51,6 +51,11 @@
     Titles: [
       { id: "rookie",  name: "Rookie", price: 0 },
       { id: "player",  name: "Player One", price: 0 },
+      // Earned (free) by owning every FREE item in the shop.
+      { id: "f2p", name: "👾 Free To Play Monster", price: 0, secret: true, lockText: "Get every FREE item" },
+      // Play-time milestones (arcade home → 🏅 Milestones).
+      { id: "dedicated", name: "🏅 Dedicated", price: 0, secret: true, lockText: "10 hours played" },
+      { id: "veteran", name: "🏅 Arcade Veteran", price: 0, secret: true, lockText: "24 hours played" },
       { id: "gamer",   name: "Gamer", price: 2 },
       { id: "hunter",  name: "Monster Hunter", price: 4 },
       { id: "speller", name: "Spelling Master", price: 4 },
@@ -337,6 +342,9 @@
   // Always re-read before writing: the arcade page and a game inside it both change the save.
   const INF_COINS = 999999999;
   const CHAMPION_STREAK = 10;
+  const DEFAULT_IDS = ["galaxy", "smile", "rookie", "gun-none", "ab-none", "bg-none"];
+  const FREE_ITEMS = () => Object.values(SHOP).flat().filter((i) => i.price === 0 && !i.secret && !DEFAULT_IDS.includes(i.id)).map((i) => i.id);
+  let justF2P = false;
   let justChampion = false;
   // Show the Champion news once, from whoever caused it (a win, or equipping the Shadow skin).
   function announceChampion() {
@@ -355,6 +363,12 @@
     // Admin Panel → ♾️ Infinite Coins: a huge real number (Infinity can't be saved — it comes back
     // as 0), topped up after every change so spending never makes it go down. Shown as ∞.
     if (isInf(save)) save.coins = INF_COINS;
+    // 👾 Free To Play Monster: own every FREE (price 0, not secret, not "Normal") shop item.
+    if (!save.owned.includes("f2p") && FREE_ITEMS().every((id) => save.owned.includes(id))) {
+      save.owned = [...save.owned, "f2p"];
+      save.equipped.title = "f2p";
+      justF2P = true;
+    }
     // 🏆 Champion: 10 Buckshot wins in a row (ever) AND the Shadow gun skin on. Whichever comes
     // last grants it — the 10th win, or putting the skin on later.
     if (!save.owned.includes("champion") && ((save.buckshot && save.buckshot.best) || 0) >= CHAMPION_STREAK
@@ -824,7 +838,8 @@
           s.equipped[slot] = useId;
         }
       });
-      if (!announceChampion() && bought) toast(`🎉 You got ${bought.name}!`);
+      if (justF2P) { justF2P = false; toast("👾 FREE TO PLAY MONSTER! You collected every free item — title unlocked!"); }
+      else if (!announceChampion() && bought) toast(`🎉 You got ${bought.name}!`);
       const skins = shareSkins(save);
       try { window.applyArcadeSkins && window.applyArcadeSkins(skins); } catch (err) { console.warn("applyArcadeSkins failed", err); }
       window.dispatchEvent(new CustomEvent("arcade-skins-changed", { detail: skins }));
@@ -856,7 +871,7 @@
       if (document.body) mountBar();
       else document.addEventListener("DOMContentLoaded", mountBar, { once: true });
     },
-    CAPS, daily, playLeft, tradeLeft, bugsLeft, isInf, coinText, CHAMPION_STREAK, announceChampion,
+    CAPS, daily, playLeft, tradeLeft, bugsLeft, isInf, coinText, CHAMPION_STREAK, announceChampion, FREE_ITEMS,
     ACTIVE_SLOTS, activeIds, CODES_TAB, grantSecretReward, CODES, SECRET_ITEMS, abilitiesChanged, redeem, codesFound, codeCount: () => Object.keys(CODES).length,
     abilityLevels: () => ({ ...(load().abilities || {}) }),
     isOpen: () => !!veil,
