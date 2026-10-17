@@ -655,9 +655,13 @@ canvas {
   <script>
 // Replace the URL path so the address bar shows the project path
 // instead of just the IP/port.
+// Only on this game's own server, which answers that path. Opened through the arcade / Nullp
+// (/games/shooting-game/) or as a file, the rewritten address 404s on reload — keep it as is.
 try {
-  history.replaceState(null, '', '/Users/zhaoling/Daniel-Projects/shooting-game');
-  document.title = '/Users/zhaoling/Daniel-Projects/shooting-game';
+  if (location.protocol.startsWith('http') && !location.pathname.startsWith('/games/')) {
+    history.replaceState(null, '', '/Users/zhaoling/Daniel-Projects/shooting-game');
+    document.title = '/Users/zhaoling/Daniel-Projects/shooting-game';
+  }
 } catch (e) {}
 
 // ════════════════════════════════════════════════════════════
