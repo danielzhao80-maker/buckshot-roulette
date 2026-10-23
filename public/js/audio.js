@@ -66,6 +66,45 @@ const GameAudio = {
     osc.stop(now + 0.03);
   },
 
+  /** Glass break -- bright high-passed noise crash plus a few tinkling pings. */
+  playGlassBreak() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const len = Math.floor(ctx.sampleRate * 0.25);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 3000;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(now);
+    source.stop(now + 0.25);
+
+    [4200, 5300, 3700, 6100].forEach((freq, i) => {
+      const t = now + 0.03 + i * 0.06;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.06, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
+  },
+
   /** Shell rack/pump -- two quick noise bursts through a bandpass filter. */
   playPump() {
     if (!this.ctx) return;

@@ -2026,6 +2026,143 @@ const GameScene = {
   },
 
   // ═══════════════════════════════════════════════════════
+  // 🔮 SECRET: BACKROOMS SNOW GLOBE (offline only)
+  // A tiny glass globe on the lower shelf with a mini Backrooms
+  // inside. Shoot it with a live shell to shatter it (see
+  // Game.playerShoot / Game._unlockBackrooms). Once broken it's gone.
+  // ═══════════════════════════════════════════════════════
+
+  SNOW_GLOBE_KEY: 'buckshot_snowglobe_broken',
+  snowGlobe: null,
+  _globeMats: null,
+
+  _snowGlobeBroken() {
+    try { return localStorage.getItem(this.SNOW_GLOBE_KEY) === '1'; } catch (e) { return false; }
+  },
+
+  /** Put the globe on the shelf (on = offline game) unless it was shattered; otherwise remove it. */
+  setSnowGlobe(on) {
+    const want = !!on && !!this.scene && !this._snowGlobeBroken();
+    if (this.snowGlobe && (!want || this.snowGlobe.parent !== this.scene)) {
+      if (this.snowGlobe.parent) this.snowGlobe.parent.remove(this.snowGlobe);
+      this.snowGlobe = null;
+    }
+    if (want && !this.snowGlobe) this._buildSnowGlobe();
+    return !!this.snowGlobe;
+  },
+
+  _buildSnowGlobe() {
+    if (!this._globeMats) { // built once, reused by every globe/shatter
+      this._globeMats = {
+        glass: new THREE.MeshStandardMaterial({ color: 0xdde8ff, transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0.1, depthWrite: false }),
+        base: new THREE.MeshStandardMaterial({ color: 0x17110c, roughness: 0.6, metalness: 0.2 }),
+        wall: new THREE.MeshStandardMaterial({ color: 0xc8b25a, roughness: 0.9, emissive: 0x3a2e08, emissiveIntensity: 0.6 }),
+        carpet: new THREE.MeshStandardMaterial({ color: 0x8a7148, roughness: 1, emissive: 0x1e170a, emissiveIntensity: 0.5 }),
+        panel: new THREE.MeshStandardMaterial({ color: 0xfffbe0, emissive: 0xfff2a8, emissiveIntensity: 2 }),
+        glow: new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.07, side: THREE.BackSide, depthWrite: false }),
+        shard: new THREE.MeshBasicMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }),
+        flash: new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+        hit: new THREE.MeshBasicMaterial({ visible: false }),
+      };
+    }
+    const m = this._globeMats;
+    const R = 0.055, CY = 0.078; // sphere radius, sphere centre above the shelf
+    const g = new THREE.Group();
+    g.name = 'snowGlobe';
+    g.position.set(-1.2, 1.7175, -3.88); // lower back shelf, between the bottles (skull is at x -0.5)
+
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.056, 0.026, 16), m.base);
+    base.position.y = 0.013; g.add(base);
+
+    // The mini Backrooms: carpet, a little maze of yellow walls, two fluorescent panels.
+    const d = new THREE.Group();
+    d.position.y = CY;
+    const carpet = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.004, 0.064), m.carpet);
+    carpet.position.y = -0.03; d.add(carpet);
+    [[-0.016, 0.002, 0.004, 0.044], [0.01, -0.014, 0.032, 0.004], [0.006, 0.016, 0.004, 0.026], [-0.004, -0.024, 0.02, 0.004], [0.022, 0.006, 0.004, 0.02]]
+      .forEach(([x, z, w, dd]) => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 0.032, dd), m.wall);
+        wall.position.set(x, -0.012, z); d.add(wall);
+      });
+    [[-0.003, 0.004], [0.014, -0.004]].forEach(([x, z]) => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.0015, 0.007), m.panel);
+      p.position.set(x, 0.012, z); d.add(p);
+    });
+    g.add(d);
+
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(R * 0.92, 16, 12), m.glow);
+    glow.position.y = CY; g.add(glow);
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(R, 20, 14), m.glass);
+    glass.position.y = CY; glass.renderOrder = 2; g.add(glass);
+    // Invisible, slightly larger hit sphere so it can actually be aimed at from the table.
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), m.hit);
+    hit.position.y = CY; hit.name = 'snowGlobeHit'; g.add(hit);
+
+    g.userData = { base, diorama: d, glow, glass, hit };
+    this.scene.add(g);
+    this.snowGlobe = g;
+    return g;
+  },
+
+  /** Live shell hit the globe: glass shards, a yellow flash, the mini Backrooms flickers out. */
+  shatterSnowGlobe() {
+    try { localStorage.setItem(this.SNOW_GLOBE_KEY, '1'); } catch (e) {}
+    const g = this.snowGlobe;
+    this.snowGlobe = null; // can't be aimed at any more
+    if (!g || !this._globeMats) return Promise.resolve();
+    const m = this._globeMats;
+    const { diorama, glow, glass, hit } = g.userData;
+    g.remove(glass); g.remove(hit);
+    m.shard.opacity = 0.75; m.flash.opacity = 0.9;
+
+    const shardGeo = new THREE.TetrahedronGeometry(0.011);
+    const shards = [];
+    for (let i = 0; i < 14; i++) {
+      const a = i * 2.39996; // golden angle: an even spray without Math.random
+      const up = (i % 5) / 5;
+      const dir = new THREE.Vector3(Math.cos(a), 0.4 + up, Math.sin(a) * 0.5 + 0.6).normalize();
+      const sh = new THREE.Mesh(shardGeo, m.shard);
+      sh.position.set(0, 0.078, 0).addScaledVector(dir, 0.045);
+      sh.rotation.set(i, i * 2, i * 3);
+      sh.userData.v = dir.multiplyScalar(0.5 + up * 0.6);
+      g.add(sh); shards.push(sh);
+    }
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), m.flash);
+    flash.position.y = 0.078; g.add(flash);
+
+    const DUR = 900;
+    return new Promise((resolve) => {
+      const st = performance.now();
+      let last = st;
+      const step = () => {
+        const now = performance.now();
+        const t = Math.min((now - st) / DUR, 1);
+        const dt = Math.min(0.05, (now - last) / 1000); last = now;
+        shards.forEach((sh) => {
+          const v = sh.userData.v;
+          v.y -= 3 * dt;
+          sh.position.addScaledVector(v, dt);
+          sh.rotation.x += 9 * dt; sh.rotation.z += 6 * dt;
+          const floor = sh.position.z < 0.04 ? 0.003 : -1.71; // on the shelf, or down to the floor
+          if (sh.position.y < floor) { sh.position.y = floor; v.set(0, 0, 0); }
+        });
+        m.flash.opacity = Math.max(0, 0.9 * (1 - t * 3));
+        flash.scale.setScalar(1 + t * 4);
+        // The mini Backrooms buzzes and flickers out.
+        diorama.visible = glow.visible = t < 0.55 && Math.floor(now / 60) % 3 !== 0;
+        m.panel.emissiveIntensity = diorama.visible ? 2 + Math.sin(now / 20) : 0;
+        m.shard.opacity = 0.75 * Math.min(1, (1 - t) * 3);
+        if (t < 1) { requestAnimationFrame(step); return; }
+        // Left behind: just the empty base. Next visit, nothing (it stays broken).
+        [diorama, glow, flash, ...shards].forEach((o) => g.remove(o));
+        m.panel.emissiveIntensity = 2;
+        resolve();
+      };
+      step();
+    });
+  },
+
+  // ═══════════════════════════════════════════════════════
   // INPUT HANDLING
   // Mouse move: aim gun (with pointer lock)
   // Click: pick up shotgun or fire at target
@@ -2080,6 +2217,12 @@ const GameScene = {
     if (opp.length && self.length) target = opp[0].distance < self[0].distance ? 'opponent' : 'self';
     else if (opp.length) target = 'opponent';
     else if (self.length) target = 'self';
+    // 🔮 Secret snow globe on the shelf (only exists in an offline game, until shattered).
+    const globe = this.snowGlobe ? this.raycaster.intersectObject(this.snowGlobe.userData.hit, false) : [];
+    if (globe.length) {
+      const near = target === 'opponent' ? opp[0].distance : target === 'self' ? self[0].distance : Infinity;
+      if (globe[0].distance < near) target = 'globe';
+    }
     if (target && this.onShoot) { this.canInteract = false; this.onShoot(target); }
   },
 

@@ -563,6 +563,132 @@ function testSkins(t) {
   G.scene = null;
 }
 
+// ---------------------------------------------------------------- 7. secret: Backrooms snow globe
+async function testSnowGlobe(t) {
+  const { win, Game, GameScene: G } = t;
+  const GLOBE_KEY = 'buckshot_snowglobe_broken';
+  section('secret snow globe: built only offline');
+  check('Game.start + restore call setSnowGlobe(offline)', [Game.start, Game.restore].every((f) => /GameScene\.setSnowGlobe\(this\.mode === 'offline'\)/.test(f.toString())));
+  // Minimal real scene: dealer + self target + camera, so _fireAtTarget raycasts like in the game.
+  G.scene = new THREE.Scene();
+  G.camera = new THREE.PerspectiveCamera(55, 16 / 9, 0.1, 50);
+  G.raycaster = new THREE.Raycaster();
+  G._buildDealer(); G._buildSelfTarget();
+  G.snowGlobe = null;
+  t.ls.removeItem(GLOBE_KEY); t.setSave({});
+  const inScene = () => !!G.scene.getObjectByName('snowGlobe');
+  Game.mode = 'online';
+  eq('online: setSnowGlobe(false) -> no globe', G.setSnowGlobe(Game.mode === 'offline'), false);
+  check('online: nothing named snowGlobe in the scene', !inScene() && G.snowGlobe === null);
+  Game.mode = 'offline';
+  eq('offline: setSnowGlobe(true) -> globe', G.setSnowGlobe(Game.mode === 'offline'), true);
+  const g = G.snowGlobe;
+  check('offline: globe added to the scene', inScene() && g && g.parent === G.scene);
+  check('sits on the lower back shelf (y 1.7175, z -3.88)', g && Math.abs(g.position.y - 1.7175) < 1e-6 && g.position.z === -3.88, g && g.position);
+  const u = g ? g.userData : {};
+  check('clear glass sphere, small (r <= 0.06)', u.glass && u.glass.material.transparent && u.glass.material.opacity < 0.3 && u.glass.geometry.parameters.radius <= 0.06);
+  check('dark base', u.base && u.base.material.color.getHex() < 0x303030);
+  const kids = u.diorama ? u.diorama.children : [];
+  check('Backrooms inside: carpet + >=3 yellow walls + 1-2 glowing panels',
+    kids.filter((k) => k.material === G._globeMats.wall).length >= 3 && kids.some((k) => k.material === G._globeMats.carpet)
+    && [1, 2].includes(kids.filter((k) => k.material === G._globeMats.panel && k.material.emissiveIntensity > 0).length));
+  let lights = 0; g && g.traverse((o) => { if (o.isLight) lights++; });
+  eq('no new lights', lights, 0);
+  const g2 = G.snowGlobe; G.setSnowGlobe(true);
+  check('setSnowGlobe(true) again keeps the same globe', G.snowGlobe === g2);
+  const mats = G._globeMats; G.setSnowGlobe(false); G.setSnowGlobe(true);
+  check('materials cached across rebuilds', G._globeMats === mats && G.snowGlobe.userData.glass.material === mats.glass);
+
+  section('secret snow globe: aiming');
+  const shotAt = () => { let got = null; G.onShoot = (x) => { got = x; }; G.canInteract = true; G.scene.updateMatrixWorld(true); G._fireAtTarget(); return got; };
+  const aim = (p) => { // same yaw/pitch aiming as the mouse handler (rotation order YXZ from the seat)
+    G.camera.position.set(0, 1.3, 2.2);
+    const d = p.clone().sub(G.camera.position);
+    const yaw = Math.atan2(-d.x, -d.z), pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    G.camera.rotation.order = 'YXZ'; G.camera.rotation.set(pitch, yaw, 0);
+    G.camera.updateMatrixWorld(true);
+    return { yaw, pitch };
+  };
+  const globeAt = () => G.snowGlobe.localToWorld(new THREE.Vector3(0, 0.078, 0));
+  const a = aim(globeAt());
+  check('globe is inside the aim limits (|yaw|<=0.6, pitch -0.5..0.3)', Math.abs(a.yaw) <= 0.6 && a.pitch >= -0.5 && a.pitch <= 0.3, a);
+  eq('aim at the globe -> globe', shotAt(), 'globe');
+  aim(new THREE.Vector3(0, 1.2, -1.6));
+  eq('aim at the dealer -> opponent (unchanged)', shotAt(), 'opponent');
+  aim(new THREE.Vector3(0, 0.6, 1.8));
+  eq('aim down at yourself -> self (unchanged)', shotAt(), 'self');
+
+  section('secret snow globe: shooting it');
+  const turns = [];
+  Game._nextTurn = (x) => turns.push(x);
+  let won = 0; Game._roundWon = () => { won++; };
+  const shootGlobe = async (mode, shell, opts = {}) => {
+    Object.assign(Game, { mode, shells: [shell, 'live'], shellIndex: 0, turnActive: true, isPlayerTurn: true, gameOver: false,
+      sawedOff: !!opts.saw, maxLives: 5, playerLives: 5, dealerLives: opts.d ?? 5 });
+    t.msgs.length = 0; turns.length = 0; won = 0;
+    await Game.playerShoot('globe');
+    return { p: Game.playerLives, d: Game.dealerLives, msg: t.msgs.join(' | ') };
+  };
+  const unlocked = () => { const s = t.getSave(); return (s.specialMaps || []).includes('backrooms') && (s.owned || []).includes('dimension'); };
+
+  // online: never
+  G.setSnowGlobe(false);
+  let r = await shootGlobe('online', 'live');
+  check('online: shot at globe ignored (turn still active, shell kept)', Game.turnActive && Game.shellIndex === 0 && turns.length === 0);
+  check('online: no unlock', !unlocked());
+
+  // blank: survives
+  G.setSnowGlobe(true);
+  const before = G.snowGlobe;
+  r = await shootGlobe('offline', 'blank', { d: 1 });
+  check('blank: *click* message', /\*click\*/.test(r.msg), r.msg);
+  check('blank: globe survives', G.snowGlobe === before && inScene());
+  check('blank: not marked broken, nothing unlocked', t.ls.getItem(GLOBE_KEY) === null && !unlocked());
+  check('blank: shell used, turn passes to dealer', Game.shellIndex === 1 && !Game.turnActive && JSON.stringify(turns) === '[true]', turns);
+  check('blank: nobody hurt', r.p === 5 && r.d === 1);
+
+  // live: shatters + unlocks
+  t.setSave({ coins: 7, owned: ['galaxy'], equipped: { title: 'rookie' } });
+  const toasts = []; const realToast = win.ArcadeShop.toast; win.ArcadeShop.toast = (m) => { toasts.push(m); };
+  r = await shootGlobe('offline', 'live', { d: 1, saw: true });
+  win.ArcadeShop.toast = realToast;
+  const sv = t.getSave();
+  check('live: specialMaps has backrooms', (sv.specialMaps || []).includes('backrooms'), sv.specialMaps);
+  check('live: owned has dimension (others kept)', (sv.owned || []).includes('dimension') && sv.owned.includes('galaxy'), sv.owned);
+  eq('live: Dimension Opener title equipped', sv.equipped && sv.equipped.title, 'dimension');
+  eq('live: coins untouched', sv.coins, 7);
+  check('live: no damage to anyone (dealer at 1 survives)', r.p === 5 && r.d === 1 && won === 0, r);
+  check('live: turn ends (dealer next), shell used, saw reset', JSON.stringify(turns) === '[true]' && Game.shellIndex === 1 && !Game.turnActive && !Game.sawedOff, turns);
+  check('live: message 1', /🌀 You broke through to the Backrooms!/.test(r.msg), r.msg);
+  check('live: message 2 (toast)', toasts.some((m) => m === 'Unlocked: Backrooms map in Monster Attack! + 🌀 Dimension Opener title'), toasts);
+  check('live: globe gone, marked broken', G.snowGlobe === null && t.ls.getItem(GLOBE_KEY) === '1');
+  const left = G.scene.getObjectByName('snowGlobe');
+  check('live: only the empty base is left after the shatter', left && left.children.length === 1 && left.children[0] === left.userData.base, left && left.children.length);
+  eq('later visit: setSnowGlobe(true) -> stays gone', G.setSnowGlobe(true), false);
+  aim(new THREE.Vector3(-1.2, 1.7955, -3.88));
+  check('later visit: aiming at the shelf no longer gives globe', shotAt() !== 'globe');
+
+  // already unlocked: just the shatter
+  t.ls.removeItem(GLOBE_KEY); G.setSnowGlobe(true);
+  t.setSave({ specialMaps: ['backrooms'], owned: ['dimension'], equipped: { title: 'rookie' } });
+  toasts.length = 0; win.ArcadeShop.toast = (m) => { toasts.push(m); };
+  r = await shootGlobe('offline', 'live');
+  win.ArcadeShop.toast = realToast;
+  check('already unlocked: shatters', G.snowGlobe === null && t.ls.getItem(GLOBE_KEY) === '1');
+  check('already unlocked: no unlock messages', !/Backrooms/.test(r.msg) && toasts.length === 0, [r.msg, toasts]);
+  eq('already unlocked: title not re-equipped', t.getSave().equipped.title, 'rookie');
+
+  // fallback without ArcadeShop: writes localStorage directly
+  t.ls.removeItem(GLOBE_KEY); G.setSnowGlobe(true); t.setSave({ coins: 3 });
+  const shop = win.ArcadeShop; win.ArcadeShop = undefined;
+  r = await shootGlobe('offline', 'live');
+  win.ArcadeShop = shop;
+  check('no ArcadeShop: unlock written straight to localStorage', unlocked() && t.getSave().coins === 3 && t.getSave().equipped.title === 'dimension');
+
+  t.ls.removeItem(GLOBE_KEY); t.setSave({});
+  G.snowGlobe = null; G.scene = null; G.camera = null;
+}
+
 // ---------------------------------------------------------------- 6. copies kept in step
 function extractMethod(src, obj, name) {
   const start = src.indexOf(`const ${obj} = {`);
@@ -595,6 +721,25 @@ function testInStep() {
   const keysIn = (s) => /const BONUS_ITEMS_KEY = '([^']+)'/.exec(s)[1] + '|' + /const EXTRA_LIVES_KEY = '([^']+)'/.exec(s)[1];
   eq('stock keys', keysIn(read('js/buckshot.js')), keysIn(HTML));
   check('stock key names', keysIn(HTML) === `${BONUS_KEY}|${LIVES_KEY}`);
+  section('secret snow globe code in step');
+  const audioJs = read('js/audio.js');
+  const globeList = {
+    GameScene: [js.GameScene, ['_snowGlobeBroken', 'setSnowGlobe', '_buildSnowGlobe', 'shatterSnowGlobe', '_fireAtTarget']],
+    Game: [js.Game, ['_unlockBackrooms']],
+    GameAudio: [audioJs, ['playGlassBreak']],
+  };
+  for (const obj in globeList) {
+    const [src, names] = globeList[obj];
+    for (const name of names) {
+      const a = extractMethod(HTML, obj, name), b = extractMethod(src, obj, name);
+      check(`${obj}.${name} identical`, a && b && a === b, a && b ? 'differs' : 'not found');
+    }
+  }
+  const globeLines = (s) => { const i = s.indexOf('async playerShoot(target) {'); const b = i < 0 ? '' : s.slice(i, s.indexOf('\n  },\n', i)); return b.split('\n').filter((l) => /globe|Backrooms|shatter|GlassBreak|msg2|fresh/i.test(l)).map((l) => l.trim()); };
+  const gl = globeLines(HTML), gb = globeLines(js.Game);
+  check(`playerShoot globe lines identical (${gl.length})`, gl.length >= 8 && JSON.stringify(gl) === JSON.stringify(gb), gl.filter((l) => !gb.includes(l)));
+  const setCalls = (s) => (s.match(/GameScene\.setSnowGlobe\(this\.mode === 'offline'\)/g) || []).length;
+  check('start + restore call setSnowGlobe in both', setCalls(HTML) === 2 && setCalls(js.Game) === 2, [setCalls(HTML), setCalls(js.Game)]);
   const wire = (s) => s.slice(s.indexOf('window.applyArcadeSkins = function'), s.indexOf("['btn-skins', 'btn-pause-skins']"));
   check('main.js arcade wiring identical', wire(HTML).replace(/\s+/g, ' ') === wire(read('js/main.js')).replace(/\s+/g, ' '));
 }
@@ -616,6 +761,7 @@ async function runEnv(name, scripts, opts) {
   stubGame(t);
   await testEffects(t);
   testBonusItems(t, opts.online);
+  await testSnowGlobe(t);
   check('no runtime errors during tests', envErrors.length === 0, envErrors.slice(0, 3));
   win.close();
 }

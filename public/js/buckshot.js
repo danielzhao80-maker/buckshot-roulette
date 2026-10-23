@@ -83,6 +83,7 @@ const Game = {
     this.els.actions.classList.add('hidden');
 
     GameScene.init();
+    GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
     GameAudio.init();
 
     GameScene.onShoot = (target) => this.playerShoot(target);
@@ -118,6 +119,7 @@ const Game = {
     this.els.actions.classList.add('hidden');
 
     GameScene.init();
+    GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
     GameAudio.init();
     GameScene.onShoot = (target) => this.playerShoot(target);
     GameScene.onGunPickedUp = () => this._showMessage('AIM & CLICK TO FIRE');
@@ -304,9 +306,26 @@ const Game = {
     }
   },
 
-  /** Player fires at 'opponent' or 'self'. Called by scene click. */
+  /** 🔮 Secret: the Backrooms snow globe was shattered. Unlocks the Backrooms map in Monster Attack!
+   *  + the Dimension Opener title in the shared arcade save. Returns true if it was newly unlocked. */
+  _unlockBackrooms() {
+    let fresh = true;
+    const grant = (s) => {
+      if ((s.specialMaps || []).includes('backrooms') && (s.owned || []).includes('dimension')) { fresh = false; return; }
+      s.specialMaps = [...new Set([...(s.specialMaps || []), 'backrooms'])];
+      s.owned = [...new Set([...(s.owned || []), 'dimension'])];
+      s.equipped = s.equipped || {};
+      s.equipped.title = 'dimension';
+    };
+    if (window.ArcadeShop && ArcadeShop.update) ArcadeShop.update(grant);
+    else { try { const k = 'daniels-arcade-v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); grant(s); localStorage.setItem(k, JSON.stringify(s)); } catch (e) {} }
+    return fresh;
+  },
+
+  /** Player fires at 'opponent', 'self' or the secret 'globe'. Called by scene click. */
   async playerShoot(target) {
     if (!this.turnActive || !this.isPlayerTurn) return;
+    if (target === 'globe' && (this.mode !== 'offline' || !GameScene.snowGlobe)) return; // 🔮 offline only
     this.turnActive = false;
     this.els.itemButtons.classList.add('hidden');
 
@@ -332,6 +351,18 @@ const Game = {
         if (this.dealerLives <= 0) {
           this._roundWon();
           return;
+        }
+      } else if (target === 'globe') {
+        // 🔮 Secret: the snow globe shatters. Nobody takes damage.
+        GameAudio.playGlassBreak();
+        const shatter = GameScene.shatterSnowGlobe();
+        const fresh = this._unlockBackrooms();
+        this._showMessage(fresh ? '🌀 You broke through to the Backrooms!' : 'LIVE ROUND! The snow globe shatters.');
+        await shatter;
+        if (fresh) {
+          const msg2 = 'Unlocked: Backrooms map in Monster Attack! + 🌀 Dimension Opener title';
+          if (window.ArcadeShop && ArcadeShop.toast) ArcadeShop.toast(msg2);
+          else { await this._delay(900); this._showMessage(msg2); }
         }
       } else {
         this.playerLives = Math.max(0, this.playerLives - damage);
