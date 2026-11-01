@@ -655,10 +655,11 @@ canvas {
   <script>
 // Replace the URL path so the address bar shows the project path
 // instead of just the IP/port.
-// Only on this game's own server, which answers that path. Opened through the arcade / Nullp
-// (/games/shooting-game/) or as a file, the rewritten address 404s on reload — keep it as is.
+// Only on this game's own server (it serves the game at "/" and answers that path). Opened through
+// the arcade / Nullp (/games/shooting-game/), online on GitHub Pages (/buckshot-roulette/public/, where
+// it would also show this computer's folder names to everyone) or as a file — keep the address as is.
 try {
-  if (location.protocol.startsWith('http') && !location.pathname.startsWith('/games/')) {
+  if (location.protocol.startsWith('http') && location.pathname === '/' && !/\.github\.io$/.test(location.hostname)) {
     history.replaceState(null, '', '/Users/zhaoling/Daniel-Projects/shooting-game');
     document.title = '/Users/zhaoling/Daniel-Projects/shooting-game';
   }
