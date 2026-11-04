@@ -84,12 +84,15 @@ const Game = {
 
     GameScene.init();
     GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
+    this.reaper = this._rollReaper();
+    GameScene.setReaper(this.reaper);
     GameAudio.init();
 
     GameScene.onShoot = (target) => this.playerShoot(target);
     GameScene.onGunPickedUp = () => {
       this._showMessage('AIM & CLICK TO FIRE');
     };
+    if (this.reaper) setTimeout(() => this._showMessage('☠️ THE GRIM REAPER TAKES THE SEAT · WIN +50 🍬 · LOSE −60 🍬'), 400);
 
     document.addEventListener('click', () => GameAudio.resume(), { once: true });
 
@@ -120,6 +123,8 @@ const Game = {
 
     GameScene.init();
     GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
+    this.reaper = !!saved.reaper;
+    GameScene.setReaper(this.reaper);
     GameAudio.init();
     GameScene.onShoot = (target) => this.playerShoot(target);
     GameScene.onGunPickedUp = () => this._showMessage('AIM & CLICK TO FIRE');
@@ -293,7 +298,7 @@ const Game = {
         this._showMessage(insight ? '👁️ Sharp Eyes: ' + insight.toUpperCase() + ' · PICK UP THE SHOTGUN' : 'PICK UP THE SHOTGUN');
       }, 1000);
     } else {
-      this.els.turnText.textContent = "DEALER'S TURN";
+      this.els.turnText.textContent = this.reaper ? "☠️ REAPER'S TURN" : "DEALER'S TURN";
       this.els.turnIndicator.classList.remove('hidden');
       this.els.itemButtons.classList.add('hidden');
 
@@ -320,6 +325,27 @@ const Game = {
     if (window.ArcadeShop && ArcadeShop.update) ArcadeShop.update(grant);
     else { try { const k = 'daniels-arcade-v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); grant(s); localStorage.setItem(k, JSON.stringify(s)); } catch (e) {} }
     return fresh;
+  },
+
+  /** ☠️ Halloween (Monster Attack!'s event): offline, the Grim Reaper sometimes takes the dealer's seat —
+   *  every time after "Challenge the Grim Reaper" in Monster Attack!'s 🎃 Halloween menu (flag
+   *  monster_attack_hw_reaper_next), otherwise 5% of games. Beat him: +50 candy, once — then he is gone
+   *  for the year. Lose: −60 (each time, until you beat him). */
+  _rollReaper() {
+    const H = window.ArcadeShop && ArcadeShop.halloween;
+    // Beaten once this Halloween = done: his +50 is a one-time reward, and he stops coming back.
+    if (this.mode !== 'offline' || !H || !H.on() || H.claimed('reaper')) return false;
+    try { if (localStorage.getItem('monster_attack_hw_reaper_next') === '1') { localStorage.removeItem('monster_attack_hw_reaper_next'); return true; } } catch (e) {}
+    return Math.random() < 0.05;
+  },
+  _reaperCandy(playerWon) {
+    if (!this.reaper) return 0;
+    const H = window.ArcadeShop && ArcadeShop.halloween;
+    if (!H) return 0;
+    if (!playerWon) return H.addCandy(-60);
+    const n = H.addCandy(50);
+    try { localStorage.setItem(H.onceKey('reaper'), '1'); localStorage.removeItem('monster_attack_hw_reaper_next'); } catch (e) {}
+    return n;
   },
 
   /** Player fires at 'opponent', 'self' or the secret 'globe'. Called by scene click. */
@@ -701,14 +727,15 @@ const Game = {
 
     GameScene.disableInteraction();
 
+    const candy = this._reaperCandy(playerWon);
     if (playerWon) {
       GameAudio.playWin();
-      this.els.gameOverText.textContent = streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN';
+      this.els.gameOverText.textContent = (streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN') + (candy ? ' · ☠️ REAPER BEATEN +' + candy + ' 🍬' : '');
       this.els.gameOverText.style.color = '#44ff44';
       GameScene.opponentDeath();
     } else {
       GameAudio.playLose();
-      this.els.gameOverText.textContent = 'YOU LOSE';
+      this.els.gameOverText.textContent = 'YOU LOSE' + (this.reaper ? ' · ☠️ THE REAPER TOOK ' + (-candy) + ' 🍬' : '');
       this.els.gameOverText.style.color = '#ff4444';
       GameScene.cameraShake();
     }
@@ -816,6 +843,7 @@ const Game = {
 
   /** Show a floating message that auto-fades after 2 seconds. */
   _showMessage(text) {
+    if (this.reaper) text = String(text).replace(/DEALER/g, 'REAPER');
     this.els.messageText.textContent = text;
     this.els.messageDisplay.classList.remove('hidden');
     const clone = this.els.messageText.cloneNode(true);
@@ -847,7 +875,7 @@ const Game = {
       maxLives: this.maxLives,
       shells: this.shells, shellIndex: this.shellIndex,
       playerItems: this.playerItems, dealerItems: this.dealerItems,
-      isPlayerTurn: this.isPlayerTurn
+      isPlayerTurn: this.isPlayerTurn, reaper: !!this.reaper
     };
   },
 

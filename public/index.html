@@ -2159,6 +2159,37 @@ const GameScene = {
     group.name = 'opponent';
     this.opponentMesh = group;
     this.scene.add(group);
+    this._buildReaper(group);
+  },
+
+  // ☠️ The Grim Reaper (Halloween): a black hood and robe over the dealer, burning eyes and a scythe.
+  // Built once with the dealer and only shown by setReaper(true).
+  _buildReaper(dealer) {
+    const g = new THREE.Group();
+    const robe = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 0.95 });
+    const eye = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x3b2a1a, roughness: 0.9 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.3, metalness: 0.8 });
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.52, 14, 1, true), robe);
+    hood.position.set(0, 1.56, 0); g.add(hood);
+    const face = new THREE.Mesh(new THREE.SphereGeometry(0.135, 14, 10), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    face.position.set(0, 1.47, 0.04); g.add(face);
+    for (const x of [-0.05, 0.05]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), eye); e.position.set(x, 1.49, 0.16); g.add(e); }
+    const cloak = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.42, 0.95, 14, 1, true), robe);
+    cloak.position.set(0, 0.92, 0); g.add(cloak);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 8), wood);
+    pole.position.set(0.55, 0.95, 0.1); g.add(pole);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.06, 0.012), steel);
+    blade.position.set(0.32, 1.86, 0.1); blade.rotation.z = -0.35; g.add(blade);
+    g.visible = false; g.name = 'reaper';
+    dealer.add(g);
+    this.reaperMesh = g;
+  },
+  setReaper(on) {
+    if (!this.opponentMesh) return;
+    if (this.reaperMesh) this.reaperMesh.visible = !!on;
+    const head = this.opponentMesh.getObjectByName('opponentHead');
+    if (head) head.visible = !on;   // the hood's dark face replaces the dealer's
   },
 
   // ═══════════════════════════════════════════════════════
@@ -3639,12 +3670,16 @@ const Game = {
 
     GameScene.init();
     GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
+    this.reaper = this._rollReaper();
+    GameScene.setReaper(this.reaper);
+    if (this.reaper && opponentLabel) opponentLabel.textContent = '☠️ REAPER';
     GameAudio.init();
 
     GameScene.onShoot = (target) => this.playerShoot(target);
     GameScene.onGunPickedUp = () => {
       this._showMessage('AIM & CLICK TO FIRE');
     };
+    if (this.reaper) setTimeout(() => this._showMessage('☠️ THE GRIM REAPER TAKES THE SEAT · WIN +50 🍬 · LOSE −60 🍬'), 400);
 
     document.addEventListener('click', () => GameAudio.resume(), { once: true });
 
@@ -3691,6 +3726,9 @@ const Game = {
 
     GameScene.init();
     GameScene.setSnowGlobe(this.mode === 'offline'); // 🔮 secret snow globe: offline only
+    this.reaper = !!saved.reaper;
+    GameScene.setReaper(this.reaper);
+    { const lbl = document.querySelector('#opponent-hud .hud-label'); if (lbl && this.reaper) lbl.textContent = '☠️ REAPER'; }
     GameAudio.init();
     GameScene.onShoot = (target) => this.playerShoot(target);
     GameScene.onGunPickedUp = () => this._showMessage('AIM & CLICK TO FIRE');
@@ -3895,7 +3933,7 @@ const Game = {
         this._showMessage(insight ? '👁️ Sharp Eyes: ' + insight.toUpperCase() + ' · PICK UP THE SHOTGUN' : 'PICK UP THE SHOTGUN');
       }, 1000);
     } else {
-      this.els.turnText.textContent = this.mode === 'online' ? "OPPONENT'S TURN" : "DEALER'S TURN";
+      this.els.turnText.textContent = this.mode === 'online' ? "OPPONENT'S TURN" : this.reaper ? "☠️ REAPER'S TURN" : "DEALER'S TURN";
       this.els.turnIndicator.classList.remove('hidden');
       this.els.itemButtons.classList.add('hidden');
 
@@ -3922,6 +3960,27 @@ const Game = {
     if (window.ArcadeShop && ArcadeShop.update) ArcadeShop.update(grant);
     else { try { const k = 'daniels-arcade-v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); grant(s); localStorage.setItem(k, JSON.stringify(s)); } catch (e) {} }
     return fresh;
+  },
+
+  /** ☠️ Halloween (Monster Attack!'s event): offline, the Grim Reaper sometimes takes the dealer's seat —
+   *  every time after "Challenge the Grim Reaper" in Monster Attack!'s 🎃 Halloween menu (flag
+   *  monster_attack_hw_reaper_next), otherwise 5% of games. Beat him: +50 candy, once — then he is gone
+   *  for the year. Lose: −60 (each time, until you beat him). */
+  _rollReaper() {
+    const H = window.ArcadeShop && ArcadeShop.halloween;
+    // Beaten once this Halloween = done: his +50 is a one-time reward, and he stops coming back.
+    if (this.mode !== 'offline' || !H || !H.on() || H.claimed('reaper')) return false;
+    try { if (localStorage.getItem('monster_attack_hw_reaper_next') === '1') { localStorage.removeItem('monster_attack_hw_reaper_next'); return true; } } catch (e) {}
+    return Math.random() < 0.05;
+  },
+  _reaperCandy(playerWon) {
+    if (!this.reaper) return 0;
+    const H = window.ArcadeShop && ArcadeShop.halloween;
+    if (!H) return 0;
+    if (!playerWon) return H.addCandy(-60);
+    const n = H.addCandy(50);
+    try { localStorage.setItem(H.onceKey('reaper'), '1'); localStorage.removeItem('monster_attack_hw_reaper_next'); } catch (e) {}
+    return n;
   },
 
   /** Player fires at 'opponent', 'self' or the secret 'globe'. Called by scene click. */
@@ -4363,14 +4422,15 @@ const Game = {
 
     GameScene.disableInteraction();
 
+    const candy = this._reaperCandy(playerWon);
     if (playerWon) {
       GameAudio.playWin();
-      this.els.gameOverText.textContent = streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN';
+      this.els.gameOverText.textContent = (streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN') + (candy ? ' · ☠️ REAPER BEATEN +' + candy + ' 🍬' : '');
       this.els.gameOverText.style.color = '#44ff44';
       GameScene.opponentDeath();
     } else {
       GameAudio.playLose();
-      this.els.gameOverText.textContent = 'YOU LOSE';
+      this.els.gameOverText.textContent = 'YOU LOSE' + (this.reaper ? ' · ☠️ THE REAPER TOOK ' + (-candy) + ' 🍬' : '');
       this.els.gameOverText.style.color = '#ff4444';
       GameScene.cameraShake();
     }
@@ -4478,6 +4538,7 @@ const Game = {
 
   /** Show a floating message that auto-fades after 2 seconds. */
   _showMessage(text) {
+    if (this.reaper) text = String(text).replace(/DEALER/g, 'REAPER');
     this.els.messageText.textContent = text;
     this.els.messageDisplay.classList.remove('hidden');
     const clone = this.els.messageText.cloneNode(true);
@@ -4509,7 +4570,7 @@ const Game = {
       maxLives: this.maxLives,
       shells: this.shells, shellIndex: this.shellIndex,
       playerItems: this.playerItems, dealerItems: this.dealerItems,
-      isPlayerTurn: this.isPlayerTurn
+      isPlayerTurn: this.isPlayerTurn, reaper: !!this.reaper
     };
   },
 

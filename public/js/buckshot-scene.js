@@ -1074,6 +1074,37 @@ const GameScene = {
     group.name = 'opponent';
     this.opponentMesh = group;
     this.scene.add(group);
+    this._buildReaper(group);
+  },
+
+  // ☠️ The Grim Reaper (Halloween): a black hood and robe over the dealer, burning eyes and a scythe.
+  // Built once with the dealer and only shown by setReaper(true).
+  _buildReaper(dealer) {
+    const g = new THREE.Group();
+    const robe = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 0.95 });
+    const eye = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x3b2a1a, roughness: 0.9 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.3, metalness: 0.8 });
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.52, 14, 1, true), robe);
+    hood.position.set(0, 1.56, 0); g.add(hood);
+    const face = new THREE.Mesh(new THREE.SphereGeometry(0.135, 14, 10), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    face.position.set(0, 1.47, 0.04); g.add(face);
+    for (const x of [-0.05, 0.05]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), eye); e.position.set(x, 1.49, 0.16); g.add(e); }
+    const cloak = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.42, 0.95, 14, 1, true), robe);
+    cloak.position.set(0, 0.92, 0); g.add(cloak);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 8), wood);
+    pole.position.set(0.55, 0.95, 0.1); g.add(pole);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.06, 0.012), steel);
+    blade.position.set(0.32, 1.86, 0.1); blade.rotation.z = -0.35; g.add(blade);
+    g.visible = false; g.name = 'reaper';
+    dealer.add(g);
+    this.reaperMesh = g;
+  },
+  setReaper(on) {
+    if (!this.opponentMesh) return;
+    if (this.reaperMesh) this.reaperMesh.visible = !!on;
+    const head = this.opponentMesh.getObjectByName('opponentHead');
+    if (head) head.visible = !on;   // the hood's dark face replaces the dealer's
   },
 
   // ═══════════════════════════════════════════════════════

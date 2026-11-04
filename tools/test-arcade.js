@@ -563,6 +563,46 @@ function testSkins(t) {
   G.scene = null;
 }
 
+// ---------------------------------------------------------------- 6b. ☠️ Grim Reaper (Halloween)
+async function testReaper(t) {
+  const { Game, GameScene: G, ls, rnd } = t;
+  const Y = new Date().getFullYear(), ONCE = 'monster_attack_hw_once_reaper_' + Y, NEXT = 'monster_attack_hw_reaper_next';
+  section('☠️ Grim Reaper (Halloween): who sits in the chair');
+  ls.setItem('monster_attack_event_force', 'halloween'); ls.removeItem(ONCE); ls.removeItem(NEXT);
+  Game.mode = 'offline';
+  rnd.value = 0.5; eq('a normal game: the dealer', Game._rollReaper(), false);
+  rnd.value = 0.01; eq('5% of games: the Grim Reaper', Game._rollReaper(), true);
+  rnd.value = 0.5; ls.setItem(NEXT, '1'); eq("challenged from Monster Attack!'s Halloween menu: always him", Game._rollReaper(), true);
+  check('…and the challenge is used up', ls.getItem(NEXT) === null);
+  Game.mode = 'online'; rnd.value = 0.01; eq('never in online games', Game._rollReaper(), false); Game.mode = 'offline';
+  ls.setItem('monster_attack_event_force', 'off'); eq('never outside Halloween', Game._rollReaper(), false);
+  ls.setItem('monster_attack_event_force', 'halloween');
+  section('☠️ Grim Reaper: candy');
+  const candy = () => parseInt(ls.getItem('monster_attack_candy'), 10) || 0;
+  ls.setItem('monster_attack_candy', '100'); Game.reaper = true;
+  eq('lose: −60 candy', Game._reaperCandy(false), -60); eq('…100 → 40', candy(), 40);
+  eq('lose again: never below 0', Game._reaperCandy(false), -40); eq('…40 → 0', candy(), 0);
+  ls.setItem('monster_attack_candy', '10'); const earned0 = parseInt(ls.getItem('monster_attack_hw_earned_' + Y), 10) || 0;
+  eq('win: +50 candy', Game._reaperCandy(true), 50); eq('…10 → 60', candy(), 60);
+  eq('…and it counts for the Halloween Pass', (parseInt(ls.getItem('monster_attack_hw_earned_' + Y), 10) || 0) - earned0, 50);
+  rnd.value = 0.01; ls.setItem(NEXT, '1');
+  eq('beaten once: he never comes back this Halloween (one-time reward)', Game._rollReaper(), false);
+  eq('a game against the dealer gives or takes no candy', (Game.reaper = false, Game._reaperCandy(true)), 0);
+  section('☠️ Grim Reaper: the look');
+  G.scene = new THREE.Scene(); G._buildDealer();
+  check('a hidden Reaper (hood, eyes, scythe) is built with the dealer', G.reaperMesh && G.reaperMesh.parent === G.opponentMesh && !G.reaperMesh.visible && G.reaperMesh.children.length >= 6);
+  G.setReaper(true);
+  check('setReaper(true): the Reaper shows and the dealer\'s face hides', G.reaperMesh.visible && !G.opponentMesh.getObjectByName('opponentHead').visible);
+  G.setReaper(false);
+  check('setReaper(false): back to the dealer', !G.reaperMesh.visible && G.opponentMesh.getObjectByName('opponentHead').visible);
+  let lights = 0; G.reaperMesh.traverse((o) => { if (o.isLight) lights++; });
+  eq('no new lights', lights, 0);
+  check('Game.start/restore put the Reaper in the chair', /GameScene\.setReaper\(this\.reaper\)/.test(Game.start.toString()) && /this\.reaper = !!saved\.reaper/.test(Game.restore.toString()));
+  check('a saved game remembers the Reaper', /reaper: !!this\.reaper/.test(Game.getSaveState.toString()));
+  G.scene = null; Game.reaper = false;
+  [ONCE, NEXT, 'monster_attack_event_force', 'monster_attack_candy', 'monster_attack_hw_earned_' + Y].forEach((k) => ls.removeItem(k));
+}
+
 // ---------------------------------------------------------------- 7. secret: Backrooms snow globe
 async function testSnowGlobe(t) {
   const { win, Game, GameScene: G } = t;
@@ -761,6 +801,7 @@ async function runEnv(name, scripts, opts) {
   stubGame(t);
   await testEffects(t);
   testBonusItems(t, opts.online);
+  await testReaper(t);
   await testSnowGlobe(t);
   check('no runtime errors during tests', envErrors.length === 0, envErrors.slice(0, 3));
   win.close();
