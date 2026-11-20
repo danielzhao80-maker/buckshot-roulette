@@ -72,6 +72,7 @@ const Game = {
   /** Start a new game in the given mode ('offline' or 'online'). */
   start(mode) {
     this.mode = mode;
+    this._selfBlanks = 0; this._lostLife = false;   // 🏅 (per game: 🎰 Gambler, 🛡️ Untouchable)
     this.round = 1;
     this.gameOver = false;
     this.sawedOff = false;
@@ -391,7 +392,7 @@ const Game = {
           else { await this._delay(900); this._showMessage(msg2); }
         }
       } else {
-        this.playerLives = Math.max(0, this.playerLives - damage);
+        this.playerLives = Math.max(0, this.playerLives - damage); this._lostLife = true;
         await GameScene.cameraShake();
         this._showMessage('LIVE ROUND! -' + damage);
 
@@ -419,6 +420,7 @@ const Game = {
       this.updateUI();
 
       if (target === 'self') {
+        if (++this._selfBlanks === 3 && window.ArcadeShop && ArcadeShop.earnTitle) ArcadeShop.earnTitle('bs-gambler', '🎰 GAMBLER! You shot yourself with 3 blanks in one game — a secret title!');   // 🤫
         // Blank on self = extra turn
         this._checkShellsEmpty() || this._nextTurn(false);
       } else {
@@ -478,7 +480,7 @@ const Game = {
       GameScene.opponentPutGunDown();
 
       if (target === 'opponent') {
-        this.playerLives = Math.max(0, this.playerLives - damage);
+        this.playerLives = Math.max(0, this.playerLives - damage); this._lostLife = true;
         await GameScene.cameraShake();
         this._showMessage('LIVE ROUND! -' + damage);
 
@@ -728,6 +730,7 @@ const Game = {
     GameScene.disableInteraction();
 
     const candy = this._reaperCandy(playerWon);
+    if (playerWon && !this._lostLife && window.ArcadeShop && ArcadeShop.earnTitle) ArcadeShop.earnTitle('bs-untouchable', '🛡️ UNTOUCHABLE! You won without losing a single life — title unlocked!');   // 🏅
     if (playerWon) {
       GameAudio.playWin();
       this.els.gameOverText.textContent = (streak > 1 ? 'YOU WIN · 🔥 ' + streak + ' IN A ROW' : 'YOU WIN') + (candy ? ' · ☠️ REAPER BEATEN +' + candy + ' 🍬' : '');

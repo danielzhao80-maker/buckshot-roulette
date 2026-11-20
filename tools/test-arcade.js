@@ -257,6 +257,20 @@ async function testEffects(t) {
   eq('online: extra life stock untouched', t.stock(LIVES_KEY), 3);
   t.setStock(LIVES_KEY, 0);
 
+  section('🏅 titles: 🎰 Gambler (3 blanks at yourself in a game)');
+  {
+    const titles = () => (JSON.parse(t.win.localStorage.getItem('daniels-arcade-v1') || '{}').owned || []);
+    Game._selfBlanks = 0; Game._lostLife = false;
+    const blankSelf = async () => { Object.assign(Game, { mode: 'offline', shells: ['blank'], shellIndex: 0, turnActive: true, isPlayerTurn: true, gameOver: false, maxLives: 5, playerLives: 5, dealerLives: 5 }); await Game.playerShoot('self'); };
+    await blankSelf(); await blankSelf();
+    check('2 blanks: not yet', !titles().includes('bs-gambler'));
+    await blankSelf();
+    check('3rd blank at yourself -> 🎰 Gambler', titles().includes('bs-gambler'));
+    Object.assign(Game, { mode: 'offline', shells: ['live'], shellIndex: 0, turnActive: true, isPlayerTurn: true, gameOver: false, maxLives: 5, playerLives: 5, dealerLives: 5 }); Game._lostLife = false;
+    await Game.playerShoot('self');
+    check('a live round at yourself marks a lost life', Game._lostLife === true);
+  }
+
   section('power: Hot Shell (+1 damage, live shot at dealer)');
   const shoot = async (mode, r, shell, target, opts = {}) => {
     Object.assign(Game, { mode, shells: [shell], shellIndex: 0, turnActive: true, isPlayerTurn: true, gameOver: false,
